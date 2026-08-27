@@ -18,5 +18,6 @@ export interface ApiError {
   error: string
 }
 
+export const USER_HEADER = 'x-chirp-user'
 export const MAX_POST_LENGTH = 280
 export const USERNAME_PATTERN = /^[a-z0-9_]{3,20}$/

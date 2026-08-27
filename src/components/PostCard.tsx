@@ -1,5 +1,11 @@
+import type { MouseEvent } from 'react'
 import type { Post } from '../../shared/types'
 import { timeAgo } from '../timeAgo'
+
+const stopThen = (fn: () => void) => (e: MouseEvent) => {
+  e.stopPropagation()
+  fn()
+}
 
 interface Props {
   post: Post
@@ -26,10 +32,7 @@ export default function PostCard({
       <header className="post-head">
         <button
           className="link-button post-author"
-          onClick={(e) => {
-            e.stopPropagation()
-            onAuthorClick?.(post.author)
-          }}
+          onClick={stopThen(() => onAuthorClick?.(post.author))}
         >
           @{post.author}
         </button>
@@ -39,10 +42,7 @@ export default function PostCard({
       <footer className="post-actions">
         <button
           className={`action${post.likedByMe ? ' liked' : ''}`}
-          onClick={(e) => {
-            e.stopPropagation()
-            onLike(post)
-          }}
+          onClick={stopThen(() => onLike(post))}
           aria-pressed={post.likedByMe}
           aria-label={post.likedByMe ? 'Unlike' : 'Like'}
         >
@@ -52,10 +52,7 @@ export default function PostCard({
         {post.author === currentUser && (
           <button
             className="action delete"
-            onClick={(e) => {
-              e.stopPropagation()
-              onDelete(post)
-            }}
+            onClick={stopThen(() => onDelete(post))}
           >
             Delete
           </button>
