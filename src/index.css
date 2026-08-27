@@ -64,6 +64,18 @@ button {
   padding: 0;
 }
 
+.brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.brand-mark {
+  display: block;
+  width: 30px;
+  height: 30px;
+}
+
 .composer {
   display: flex;
   flex-direction: column;
@@ -203,6 +215,12 @@ input[type='text']:focus {
   text-align: center;
 }
 
+.login-mark {
+  align-self: center;
+  width: 96px;
+  height: 96px;
+}
+
 .login h1 {
   margin: 0;
   font-size: 28px;
@@ -212,6 +230,12 @@ input[type='text']:focus {
   margin: 0;
   color: var(--muted);
   font-size: 14px;
+}
+
+.login .tagline {
+  color: var(--text);
+  font-size: 15px;
+  letter-spacing: 0.02em;
 }
 
 .back {

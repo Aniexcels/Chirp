@@ -11,6 +11,19 @@ Identity is deliberately trivial: you pick a handle, it's kept in `localStorage`
 `x-chirp-user` header. There are no passwords — anyone can claim any handle. Add real auth
 (e.g. Cloudflare Access, or signed cookies) before putting this anywhere public.
 
+## Brand assets
+
+`brand/chirp-logo.png` is the full logo lockup and the source of truth. The assets the app actually
+ships are cropped from the bird mark in it, with the white background keyed out to alpha:
+
+| Asset | Use |
+| --- | --- |
+| `src/assets/chirp-mark.png` | 256px mark, rendered in the header and on the sign-in screen |
+| `public/favicon.png` | 32px browser tab icon |
+| `public/apple-touch-icon.png` | 180px iOS home-screen icon, flattened onto white |
+
+Regenerate them from `brand/chirp-logo.png` if the logo changes; do not edit them by hand.
+
 ## Local development
 
 ```bash

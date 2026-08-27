@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { USERNAME_PATTERN } from '../../shared/types'
+import chirpMark from '../assets/chirp-mark.png'
 
 export default function Login({ onSignIn }: { onSignIn: (username: string) => void }) {
   const [value, setValue] = useState('')
@@ -14,7 +15,9 @@ export default function Login({ onSignIn }: { onSignIn: (username: string) => vo
         if (valid) onSignIn(username)
       }}
     >
+      <img className="login-mark" src={chirpMark} alt="Chirp" width={96} height={96} />
       <h1>Chirp</h1>
+      <p className="tagline">Share more. Connect better.</p>
       <p>Pick a handle to start posting. 3–20 characters: a–z, 0–9, underscore.</p>
       <input
         type="text"
