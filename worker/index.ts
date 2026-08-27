@@ -41,6 +41,14 @@ const POST_SELECT = `
 
 const app = new Hono<{ Bindings: Env; Variables: { user: string | null } }>()
 
+app.onError((err, c) => {
+  console.error(`${c.req.method} ${c.req.path} failed`, err)
+  if (c.req.path.startsWith('/api/')) {
+    return c.json({ error: 'something went wrong on the server' }, 500)
+  }
+  return c.text('Internal Server Error', 500)
+})
+
 app.use('/api/*', async (c, next) => {
   const raw = c.req.header(USER_HEADER)?.trim().toLowerCase() ?? ''
   c.set('user', USERNAME_PATTERN.test(raw) ? raw : null)
@@ -88,7 +96,21 @@ app.post('/api/posts', async (c) => {
   const user = await requireUser(c)
   if (!user) return c.json({ error: 'pick a username first' }, 401)
 
-  const { body, parentId = null } = await c.req.json<CreatePostBody>()
+  let payload: Partial<CreatePostBody>
+  try {
+    payload = await c.req.json<CreatePostBody>()
+  } catch {
+    return c.json({ error: 'request body must be valid JSON' }, 400)
+  }
+
+  const { body, parentId = null } = payload
+  if (body !== undefined && typeof body !== 'string') {
+    return c.json({ error: 'body must be a string' }, 400)
+  }
+  if (parentId !== null && typeof parentId !== 'string') {
+    return c.json({ error: 'parentId must be a string or null' }, 400)
+  }
+
   const text = body?.trim() ?? ''
   if (!text) return c.json({ error: 'post cannot be empty' }, 400)
   if (text.length > MAX_POST_LENGTH) {
@@ -163,10 +185,14 @@ app.post('/api/posts/:id/like', async (c) => {
   return c.json({ likeCount: count?.n ?? 0, likedByMe: !existing })
 })
 
-app.notFound((c) =>
-  c.req.path.startsWith('/api/')
-    ? c.json({ error: 'not found' }, 404)
-    : c.env.ASSETS.fetch(c.req.raw),
-)
+app.notFound(async (c) => {
+  if (c.req.path.startsWith('/api/')) return c.json({ error: 'not found' }, 404)
+  try {
+    return await c.env.ASSETS.fetch(c.req.raw)
+  } catch (err) {
+    console.error(`serving asset ${c.req.path} failed`, err)
+    return c.text('Internal Server Error', 500)
+  }
+})
 
 export default app
