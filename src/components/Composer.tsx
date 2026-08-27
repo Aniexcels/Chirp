@@ -4,7 +4,8 @@ import { MAX_POST_LENGTH } from '../../shared/types'
 interface Props {
   placeholder: string
   submitLabel: string
-  onSubmit: (body: string) => Promise<void>
+  /** Resolves to true when the post was accepted; the input is only cleared then. */
+  onSubmit: (body: string) => Promise<boolean>
 }
 
 export default function Composer({ placeholder, submitLabel, onSubmit }: Props) {
@@ -18,8 +19,7 @@ export default function Composer({ placeholder, submitLabel, onSubmit }: Props) 
     if (!canSubmit) return
     setBusy(true)
     try {
-      await onSubmit(body.trim())
-      setBody('')
+      if (await onSubmit(body.trim())) setBody('')
     } finally {
       setBusy(false)
     }

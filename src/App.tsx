@@ -59,12 +59,14 @@ export default function App() {
     setView({ kind: 'feed' })
   }
 
-  const run = async (fn: () => Promise<void>) => {
+  const run = async (fn: () => Promise<void>): Promise<boolean> => {
     try {
       await fn()
       setError('')
+      return true
     } catch (e) {
       setError(message(e))
+      return false
     }
   }
 
