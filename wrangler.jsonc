@@ -3,6 +3,11 @@
   "name": "chirp",
   "main": "worker/index.ts",
   "compatibility_date": "2025-09-01",
+  // Runs before every deploy, so `wrangler deploy` alone is enough — CI does not
+  // have to be configured to build the client first.
+  "build": {
+    "command": "npm run build:client"
+  },
   "assets": {
     "directory": "./dist/client",
     "binding": "ASSETS",
