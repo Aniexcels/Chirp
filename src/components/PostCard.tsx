@@ -3,7 +3,7 @@ import { timeAgo } from '../timeAgo'
 
 interface Props {
   post: Post
-  currentUser: string
+  currentUserId: string
   onOpen?: (post: Post) => void
   onAuthorClick?: (author: string) => void
   onLike: (post: Post) => void
@@ -12,16 +12,32 @@ interface Props {
 
 export default function PostCard({
   post,
-  currentUser,
+  currentUserId,
   onOpen,
   onAuthorClick,
   onLike,
   onDelete,
 }: Props) {
+  const open = onOpen ? () => onOpen(post) : undefined
+
   return (
     <article
-      className={`post${onOpen ? ' clickable' : ''}`}
-      onClick={onOpen ? () => onOpen(post) : undefined}
+      className={`post${open ? ' clickable' : ''}`}
+      onClick={open}
+      // Opening a thread must work without a pointer.
+      onKeyDown={
+        open
+          ? (event) => {
+              if (event.target !== event.currentTarget) return
+              if (event.key === 'Enter' || event.key === ' ') {
+                event.preventDefault()
+                open()
+              }
+            }
+          : undefined
+      }
+      tabIndex={open ? 0 : undefined}
+      role={open ? 'link' : undefined}
     >
       <header className="post-head">
         <button
@@ -31,6 +47,9 @@ export default function PostCard({
             onAuthorClick?.(post.author)
           }}
         >
+          {post.authorDisplayName !== post.author && (
+            <span className="post-name">{post.authorDisplayName}</span>
+          )}
           @{post.author}
         </button>
         <span className="post-time">{timeAgo(post.createdAt)}</span>
@@ -49,7 +68,7 @@ export default function PostCard({
           {post.likedByMe ? '♥' : '♡'} {post.likeCount}
         </button>
         <span className="action">💬 {post.replyCount}</span>
-        {post.author === currentUser && (
+        {post.authorId === currentUserId && (
           <button
             className="action delete"
             onClick={(e) => {

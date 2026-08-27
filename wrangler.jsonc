@@ -3,6 +3,11 @@
   "name": "chirp",
   "main": "worker/index.ts",
   "compatibility_date": "2025-09-01",
+  // Runs before every deploy, so `wrangler deploy` alone is enough — CI does not
+  // have to be configured to build the client first.
+  "build": {
+    "command": "npm run build:client"
+  },
   "assets": {
     "directory": "./dist/client",
     "binding": "ASSETS",
@@ -15,7 +20,7 @@
     {
       "binding": "DB",
       "database_name": "chirp-db",
-      "database_id": "00000000-0000-0000-0000-000000000000",
+      "database_id": "f2508476-e998-475e-bda3-d0c42f65b5cc",
       "migrations_dir": "migrations"
     }
   ]
