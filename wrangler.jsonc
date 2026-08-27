@@ -15,7 +15,7 @@
     {
       "binding": "DB",
       "database_name": "chirp-db",
-      "database_id": "00000000-0000-0000-0000-000000000000",
+      "database_id": "f2508476-e998-475e-bda3-d0c42f65b5cc",
       "migrations_dir": "migrations"
     }
   ]

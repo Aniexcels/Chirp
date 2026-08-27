@@ -59,9 +59,12 @@ npm run db:migrate                  # apply migrations to the remote database
 npm run deploy                      # builds the client, then wrangler deploy
 ```
 
-`wrangler.jsonc` ships with a placeholder `database_id`; deployment fails until you replace it
-with the id of your own D1 database. The Worker serves the built client as static assets and
-handles `/api/*` itself, so a single `wrangler deploy` ships the whole app.
+`wrangler.jsonc` points at the project's D1 database. The Worker serves the built client as static
+assets and handles `/api/*` itself, so a single `wrangler deploy` ships the whole app.
+
+Cloudflare Workers Builds deploys on push, but it only runs `wrangler deploy` — it does not apply
+migrations. Run `npm run db:migrate` against the remote database whenever `migrations/` gains a
+file, before the deploy that depends on it.
 
 ## API
 
