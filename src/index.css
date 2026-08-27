@@ -85,7 +85,9 @@ button {
 }
 
 textarea,
-input[type='text'] {
+input[type='text'],
+input[type='email'],
+input[type='password'] {
   width: 100%;
   background: var(--panel);
   border: 1px solid var(--border);
@@ -97,7 +99,9 @@ input[type='text'] {
 }
 
 textarea:focus,
-input[type='text']:focus {
+input[type='text']:focus,
+input[type='email']:focus,
+input[type='password']:focus {
   outline: 2px solid var(--accent);
   outline-offset: -1px;
 }
@@ -236,6 +240,58 @@ input[type='text']:focus {
   color: var(--text);
   font-size: 15px;
   letter-spacing: 0.02em;
+}
+
+.login label {
+  font-size: 13px;
+  color: var(--muted);
+  text-align: left;
+}
+
+.login .hint {
+  font-size: 12px;
+  text-align: left;
+}
+
+.login .notice {
+  color: var(--accent);
+}
+
+.auth-tabs {
+  display: flex;
+  gap: 6px;
+  padding: 4px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+}
+
+.auth-tab {
+  flex: 1;
+  padding: 8px 10px;
+  border: none;
+  border-radius: 999px;
+  background: none;
+  color: var(--muted);
+}
+
+.auth-tab.active {
+  background: var(--border);
+  color: var(--text);
+}
+
+.auth-switch {
+  font-size: 13px;
+}
+
+.post-name {
+  color: var(--text);
+  font-weight: 600;
+  margin-right: 6px;
+}
+
+.post.clickable:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
 }
 
 .back {

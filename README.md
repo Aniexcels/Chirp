@@ -7,9 +7,23 @@ A small social app: post short messages, reply in threads, like posts, browse a 
 - **Storage** — Cloudflare D1 (SQLite), schema in `migrations/`
 - **Types** — request/response shapes shared by both sides in `shared/types.ts`
 
-Identity is deliberately trivial: you pick a handle, it's kept in `localStorage` and sent as an
-`x-chirp-user` header. There are no passwords — anyone can claim any handle. Add real auth
-(e.g. Cloudflare Access, or signed cookies) before putting this anywhere public.
+## Authentication
+
+Identity is established server-side only. Nothing a client asserts about who it is, is trusted.
+
+- Passwords are hashed with PBKDF2-SHA256 (210k iterations) via WebCrypto — no native dependency.
+- A session token is returned once and stored only as a hash. Browsers get it in an HttpOnly,
+  `SameSite=Lax` cookie; native clients may send it as `Authorization: Bearer <token>`.
+- Sessions expire after 30 days, slide forward while in use, and are revoked on logout and on
+  every password reset.
+- Password reset and email verification links carry single-use, expiring tokens. There is no mail
+  provider bound yet, so `worker/mailer.ts` logs the link (visible in `wrangler tail`) instead of
+  sending it; wiring a provider means implementing `send` there and nothing else.
+- Handles created before authentication existed (no password, no email) can be claimed by
+  registering them, which keeps their posts and likes attached to the new account.
+- Auth endpoints, posting and liking are rate limited per IP and per account.
+- Accounts carry a status (`active`, `suspended`, `deactivated`); anything but `active` cannot use
+  the API even with a valid session token.
 
 ## Brand assets
 
@@ -53,18 +67,36 @@ handles `/api/*` itself, so a single `wrangler deploy` ships the whole app.
 
 | Method | Path | Description |
 | --- | --- | --- |
+| `POST` | `/api/auth/register` | Create an account (`{ username, password, email?, displayName? }`) |
+| `POST` | `/api/auth/login` | Start a session (`{ username, password }`) |
+| `POST` | `/api/auth/logout` | Revoke the current session |
+| `GET` | `/api/auth/me` | The signed-in user |
+| `POST` | `/api/auth/password-reset/request` | Email a reset link; always 202 |
+| `POST` | `/api/auth/password-reset/confirm` | Set a new password (`{ token, password }`) |
+| `POST` | `/api/auth/verify-email` | Confirm an address (`{ token }`) |
 | `GET` | `/api/posts` | 50 most recent top-level posts (`?author=` to filter) |
 | `GET` | `/api/posts/:id` | A post plus its replies |
 | `POST` | `/api/posts` | Create a post or reply (`{ body, parentId? }`) |
 | `DELETE` | `/api/posts/:id` | Delete your own post |
 | `POST` | `/api/posts/:id/like` | Toggle a like, returns the new count |
 
-All routes read the caller's handle from the `x-chirp-user` header; writes return 401 without a
-valid one.
+Reads are public; every write requires a session. Errors are always JSON of the shape
+`{ code, error, fields?, retryAfter? }` — see `ApiErrorCode` in `shared/types.ts`.
+
+## Data model
+
+`migrations/0001_init.sql` keyed users, posts and likes by handle. `0002_identity.sql` repoints
+everything at an opaque `users.id`, preserving existing rows (handles, posts, likes and their
+timestamps), and adds `sessions`, `auth_tokens` and `rate_limits`. Handles are now a unique column
+rather than a primary key, so they can change later without touching foreign keys.
 
 ## Checks
 
 ```bash
 npm run lint
-npm run build   # runs tsc -b across the app, worker and node configs
+npm run typecheck
+npm test        # API tests in workerd against a real local D1 built from migrations/
+npm run build
 ```
+
+The same four commands run in CI (`.github/workflows/ci.yml`) on every pull request.

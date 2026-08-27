@@ -1,172 +1,71 @@
 import { Hono } from 'hono'
-import type { Post, CreatePostBody } from '../shared/types'
-import { MAX_POST_LENGTH, USERNAME_PATTERN } from '../shared/types'
+import type { AppEnv } from './env'
+import { HttpError, badRequest, forbidden } from './errors'
+import { readSessionToken, resolveSession } from './session'
+import authRoutes from './routes/auth'
+import postRoutes from './routes/posts'
 
-interface Env {
-  DB: D1Database
-  ASSETS: Fetcher
-}
-
-interface PostRow {
-  id: string
-  author: string
-  body: string
-  parent_id: string | null
-  created_at: number
-  like_count: number
-  reply_count: number
-  liked_by_me: number
-}
-
-const USER_HEADER = 'x-chirp-user'
-
-const toPost = (row: PostRow): Post => ({
-  id: row.id,
-  author: row.author,
-  body: row.body,
-  parentId: row.parent_id,
-  createdAt: row.created_at,
-  likeCount: row.like_count,
-  replyCount: row.reply_count,
-  likedByMe: row.liked_by_me === 1,
-})
-
-const POST_SELECT = `
-  SELECT p.id, p.author, p.body, p.parent_id, p.created_at,
-         (SELECT COUNT(*) FROM likes l WHERE l.post_id = p.id) AS like_count,
-         (SELECT COUNT(*) FROM posts r WHERE r.parent_id = p.id) AS reply_count,
-         EXISTS(SELECT 1 FROM likes l WHERE l.post_id = p.id AND l.username = ?1) AS liked_by_me
-  FROM posts p
-`
-
-const app = new Hono<{ Bindings: Env; Variables: { user: string | null } }>()
+const app = new Hono<AppEnv>()
 
 app.use('/api/*', async (c, next) => {
-  const raw = c.req.header(USER_HEADER)?.trim().toLowerCase() ?? ''
-  c.set('user', USERNAME_PATTERN.test(raw) ? raw : null)
+  c.set('requestId', crypto.randomUUID())
+
+  // Cookie-authenticated writes need CSRF protection: same-origin requests
+  // either omit Origin or send our own. `Authorization`-bearing clients are
+  // not cookie-driven and are exempt.
+  if (!['GET', 'HEAD', 'OPTIONS'].includes(c.req.method) && !c.req.header('authorization')) {
+    const origin = c.req.header('origin')
+    if (origin && origin !== new URL(c.req.url).origin) {
+      throw forbidden('cross-origin request blocked')
+    }
+  }
+
+  const token = readSessionToken(c)
+  const session = token ? await resolveSession(c.env, token) : null
+  c.set('user', session?.user ?? null)
+  c.set('sessionId', session?.sessionId ?? null)
   await next()
 })
 
-const requireUser = async (
-  c: { get: (k: 'user') => string | null; env: Env },
-): Promise<string | null> => {
-  const user = c.get('user')
-  if (!user) return null
-  await c.env.DB.prepare(
-    'INSERT OR IGNORE INTO users (username, created_at) VALUES (?1, ?2)',
-  )
-    .bind(user, Date.now())
-    .run()
-  return user
-}
-
-app.get('/api/posts', async (c) => {
-  const user = c.get('user') ?? ''
-  const author = c.req.query('author')
-  const where = author ? 'WHERE p.parent_id IS NULL AND p.author = ?2' : 'WHERE p.parent_id IS NULL'
-  const stmt = c.env.DB.prepare(`${POST_SELECT} ${where} ORDER BY p.created_at DESC LIMIT 50`)
-  const { results } = await (author ? stmt.bind(user, author) : stmt.bind(user)).all<PostRow>()
-  return c.json(results.map(toPost))
-})
-
-app.get('/api/posts/:id', async (c) => {
-  const user = c.get('user') ?? ''
-  const id = c.req.param('id')
-  const post = await c.env.DB.prepare(`${POST_SELECT} WHERE p.id = ?2`)
-    .bind(user, id)
-    .first<PostRow>()
-  if (!post) return c.json({ error: 'post not found' }, 404)
-  const { results } = await c.env.DB.prepare(
-    `${POST_SELECT} WHERE p.parent_id = ?2 ORDER BY p.created_at ASC LIMIT 100`,
-  )
-    .bind(user, id)
-    .all<PostRow>()
-  return c.json({ post: toPost(post), replies: results.map(toPost) })
-})
-
-app.post('/api/posts', async (c) => {
-  const user = await requireUser(c)
-  if (!user) return c.json({ error: 'pick a username first' }, 401)
-
-  const { body, parentId = null } = await c.req.json<CreatePostBody>()
-  const text = body?.trim() ?? ''
-  if (!text) return c.json({ error: 'post cannot be empty' }, 400)
-  if (text.length > MAX_POST_LENGTH) {
-    return c.json({ error: `post must be ${MAX_POST_LENGTH} characters or fewer` }, 400)
-  }
-  if (parentId) {
-    const parent = await c.env.DB.prepare('SELECT id FROM posts WHERE id = ?1').bind(parentId).first()
-    if (!parent) return c.json({ error: 'parent post not found' }, 404)
-  }
-
-  const id = crypto.randomUUID()
-  const createdAt = Date.now()
-  await c.env.DB.prepare(
-    'INSERT INTO posts (id, author, body, parent_id, created_at) VALUES (?1, ?2, ?3, ?4, ?5)',
-  )
-    .bind(id, user, text, parentId, createdAt)
-    .run()
-
-  const post: Post = {
-    id,
-    author: user,
-    body: text,
-    parentId,
-    createdAt,
-    likeCount: 0,
-    replyCount: 0,
-    likedByMe: false,
-  }
-  return c.json(post, 201)
-})
-
-app.delete('/api/posts/:id', async (c) => {
-  const user = await requireUser(c)
-  if (!user) return c.json({ error: 'pick a username first' }, 401)
-  const result = await c.env.DB.prepare('DELETE FROM posts WHERE id = ?1 AND author = ?2')
-    .bind(c.req.param('id'), user)
-    .run()
-  if (!result.meta.changes) return c.json({ error: 'post not found' }, 404)
-  return c.body(null, 204)
-})
-
-app.post('/api/posts/:id/like', async (c) => {
-  const user = await requireUser(c)
-  if (!user) return c.json({ error: 'pick a username first' }, 401)
-  const id = c.req.param('id')
-  const post = await c.env.DB.prepare('SELECT id FROM posts WHERE id = ?1').bind(id).first()
-  if (!post) return c.json({ error: 'post not found' }, 404)
-
-  const existing = await c.env.DB.prepare(
-    'SELECT 1 FROM likes WHERE post_id = ?1 AND username = ?2',
-  )
-    .bind(id, user)
-    .first()
-
-  if (existing) {
-    await c.env.DB.prepare('DELETE FROM likes WHERE post_id = ?1 AND username = ?2')
-      .bind(id, user)
-      .run()
-  } else {
-    await c.env.DB.prepare(
-      'INSERT INTO likes (post_id, username, created_at) VALUES (?1, ?2, ?3)',
-    )
-      .bind(id, user, Date.now())
-      .run()
-  }
-
-  const count = await c.env.DB.prepare(
-    'SELECT COUNT(*) AS n FROM likes WHERE post_id = ?1',
-  )
-    .bind(id)
-    .first<{ n: number }>()
-  return c.json({ likeCount: count?.n ?? 0, likedByMe: !existing })
-})
+app.route('/api/auth', authRoutes)
+app.route('/api/posts', postRoutes)
 
 app.notFound((c) =>
   c.req.path.startsWith('/api/')
-    ? c.json({ error: 'not found' }, 404)
+    ? c.json({ code: 'not_found', error: 'not found' }, 404)
     : c.env.ASSETS.fetch(c.req.raw),
 )
+
+/**
+ * The single place an error becomes a response. Expected failures keep their
+ * `ApiError` envelope; anything else is logged with the request id and
+ * answered with a generic 500 so internals never reach a client.
+ */
+app.onError((error, c) => {
+  const httpError =
+    error instanceof HttpError
+      ? error
+      : error instanceof SyntaxError
+        ? badRequest('request body must be valid JSON')
+        : null
+
+  if (httpError) {
+    const headers: Record<string, string> = {}
+    if (httpError.retryAfter) headers['retry-after'] = String(httpError.retryAfter)
+    return c.json(httpError.toJSON(), httpError.status, headers)
+  }
+
+  console.error(
+    JSON.stringify({
+      event: 'request.unhandled_error',
+      requestId: c.get('requestId'),
+      path: c.req.path,
+      method: c.req.method,
+      message: error instanceof Error ? error.message : String(error),
+      stack: error instanceof Error ? error.stack : undefined,
+    }),
+  )
+  return c.json({ code: 'internal_error', error: 'something went wrong' }, 500)
+})
 
 export default app
