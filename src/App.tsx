@@ -11,8 +11,27 @@ type View = { kind: 'feed'; author?: string } | { kind: 'thread'; id: string }
 
 const message = (e: unknown) => (e instanceof Error ? e.message : 'something went wrong')
 
+/** localStorage throws when storage is disabled or full; the session still works without it. */
+const readStoredUser = (): string => {
+  try {
+    return localStorage.getItem(STORAGE_KEY) ?? ''
+  } catch (e) {
+    console.error('reading the stored handle failed', e)
+    return ''
+  }
+}
+
+const storeUser = (username: string | null) => {
+  try {
+    if (username === null) localStorage.removeItem(STORAGE_KEY)
+    else localStorage.setItem(STORAGE_KEY, username)
+  } catch (e) {
+    console.error('persisting the handle failed', e)
+  }
+}
+
 export default function App() {
-  const [user, setUser] = useState(() => localStorage.getItem(STORAGE_KEY) ?? '')
+  const [user, setUser] = useState(readStoredUser)
   const [view, setView] = useState<View>({ kind: 'feed' })
   const [reloadKey, setReloadKey] = useState(0)
   const [posts, setPosts] = useState<Post[] | null>(null)
@@ -38,6 +57,7 @@ export default function App() {
         }
         setError('')
       } catch (e) {
+        console.error('loading the view failed', e)
         if (!cancelled) setError(message(e))
       }
     }
@@ -48,12 +68,12 @@ export default function App() {
   }, [user, view, reloadKey])
 
   const signIn = (username: string) => {
-    localStorage.setItem(STORAGE_KEY, username)
+    storeUser(username)
     setUser(username)
   }
 
   const signOut = () => {
-    localStorage.removeItem(STORAGE_KEY)
+    storeUser(null)
     setUser('')
     setPosts(null)
     setView({ kind: 'feed' })
@@ -65,6 +85,7 @@ export default function App() {
       setError('')
       return true
     } catch (e) {
+      console.error('action failed', e)
       setError(message(e))
       return false
     }
