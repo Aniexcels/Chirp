@@ -20,6 +20,7 @@ export default function App() {
   const [error, setError] = useState('')
 
   const reload = () => setReloadKey((k) => k + 1)
+  const showFeed = () => setView({ kind: 'feed' })
 
   useEffect(() => {
     if (!user) return
@@ -56,7 +57,7 @@ export default function App() {
     localStorage.removeItem(STORAGE_KEY)
     setUser('')
     setPosts(null)
-    setView({ kind: 'feed' })
+    showFeed()
   }
 
   const run = async (fn: () => Promise<void>): Promise<boolean> => {
@@ -83,7 +84,7 @@ export default function App() {
   const remove = (post: Post) =>
     run(async () => {
       await api.deletePost(user, post.id)
-      if (view.kind === 'thread' && view.id === post.id) setView({ kind: 'feed' })
+      if (view.kind === 'thread' && view.id === post.id) showFeed()
       else reload()
     })
 
@@ -93,13 +94,20 @@ export default function App() {
       reload()
     })
 
+  const postCardProps = {
+    currentUser: user,
+    onAuthorClick: (author: string) => setView({ kind: 'feed', author }),
+    onLike: like,
+    onDelete: remove,
+  }
+
   if (!user) return <Login onSignIn={signIn} />
 
   return (
     <div className="app">
       <header className="header">
         <h1>
-          <button className="link-button" onClick={() => setView({ kind: 'feed' })}>
+          <button className="link-button" onClick={showFeed}>
             Chirp
           </button>
         </h1>
@@ -123,7 +131,7 @@ export default function App() {
           {view.author && (
             <div className="back">
               Posts by @{view.author} ·{' '}
-              <button className="link-button" onClick={() => setView({ kind: 'feed' })}>
+              <button className="link-button" onClick={showFeed}>
                 back to feed
               </button>
             </div>
@@ -133,44 +141,28 @@ export default function App() {
             <PostCard
               key={post.id}
               post={post}
-              currentUser={user}
               onOpen={(p) => setView({ kind: 'thread', id: p.id })}
-              onAuthorClick={(author) => setView({ kind: 'feed', author })}
-              onLike={like}
-              onDelete={remove}
+              {...postCardProps}
             />
           ))}
         </>
       ) : (
         <>
           <div className="back">
-            <button className="link-button" onClick={() => setView({ kind: 'feed' })}>
+            <button className="link-button" onClick={showFeed}>
               ← back to feed
             </button>
           </div>
           {thread && (
             <>
-              <PostCard
-                post={thread.post}
-                currentUser={user}
-                onAuthorClick={(author) => setView({ kind: 'feed', author })}
-                onLike={like}
-                onDelete={remove}
-              />
+              <PostCard post={thread.post} {...postCardProps} />
               <Composer
                 placeholder="Post your reply"
                 submitLabel="Reply"
                 onSubmit={(body) => publish(body, thread.post.id)}
               />
               {thread.replies.map((reply) => (
-                <PostCard
-                  key={reply.id}
-                  post={reply}
-                  currentUser={user}
-                  onAuthorClick={(author) => setView({ kind: 'feed', author })}
-                  onLike={like}
-                  onDelete={remove}
-                />
+                <PostCard key={reply.id} post={reply} {...postCardProps} />
               ))}
             </>
           )}

@@ -1,6 +1,5 @@
 import type { ApiError, Post } from '../shared/types'
-
-const USER_HEADER = 'x-chirp-user'
+import { USER_HEADER } from '../shared/types'
 
 const request = async <T>(path: string, user: string, init?: RequestInit): Promise<T> => {
   const res = await fetch(`/api${path}`, {

@@ -1,6 +1,7 @@
 import { Hono } from 'hono'
+import type { MiddlewareHandler } from 'hono'
 import type { Post, CreatePostBody } from '../shared/types'
-import { MAX_POST_LENGTH, USERNAME_PATTERN } from '../shared/types'
+import { MAX_POST_LENGTH, USERNAME_PATTERN, USER_HEADER } from '../shared/types'
 
 interface Env {
   DB: D1Database
@@ -17,8 +18,6 @@ interface PostRow {
   reply_count: number
   liked_by_me: number
 }
-
-const USER_HEADER = 'x-chirp-user'
 
 const toPost = (row: PostRow): Post => ({
   id: row.id,
@@ -39,7 +38,9 @@ const POST_SELECT = `
   FROM posts p
 `
 
-const app = new Hono<{ Bindings: Env; Variables: { user: string | null } }>()
+type AppEnv = { Bindings: Env; Variables: { user: string | null; authedUser: string } }
+
+const app = new Hono<AppEnv>()
 
 app.use('/api/*', async (c, next) => {
   const raw = c.req.header(USER_HEADER)?.trim().toLowerCase() ?? ''
@@ -47,18 +48,20 @@ app.use('/api/*', async (c, next) => {
   await next()
 })
 
-const requireUser = async (
-  c: { get: (k: 'user') => string | null; env: Env },
-): Promise<string | null> => {
+const requireUser: MiddlewareHandler<AppEnv> = async (c, next) => {
   const user = c.get('user')
-  if (!user) return null
+  if (!user) return c.json({ error: 'pick a username first' }, 401)
   await c.env.DB.prepare(
     'INSERT OR IGNORE INTO users (username, created_at) VALUES (?1, ?2)',
   )
     .bind(user, Date.now())
     .run()
-  return user
+  c.set('authedUser', user)
+  await next()
 }
+
+const postExists = async (db: D1Database, id: string): Promise<boolean> =>
+  Boolean(await db.prepare('SELECT id FROM posts WHERE id = ?1').bind(id).first())
 
 app.get('/api/posts', async (c) => {
   const user = c.get('user') ?? ''
@@ -84,9 +87,8 @@ app.get('/api/posts/:id', async (c) => {
   return c.json({ post: toPost(post), replies: results.map(toPost) })
 })
 
-app.post('/api/posts', async (c) => {
-  const user = await requireUser(c)
-  if (!user) return c.json({ error: 'pick a username first' }, 401)
+app.post('/api/posts', requireUser, async (c) => {
+  const user = c.get('authedUser')
 
   const { body, parentId = null } = await c.req.json<CreatePostBody>()
   const text = body?.trim() ?? ''
@@ -94,9 +96,8 @@ app.post('/api/posts', async (c) => {
   if (text.length > MAX_POST_LENGTH) {
     return c.json({ error: `post must be ${MAX_POST_LENGTH} characters or fewer` }, 400)
   }
-  if (parentId) {
-    const parent = await c.env.DB.prepare('SELECT id FROM posts WHERE id = ?1').bind(parentId).first()
-    if (!parent) return c.json({ error: 'parent post not found' }, 404)
+  if (parentId && !(await postExists(c.env.DB, parentId))) {
+    return c.json({ error: 'parent post not found' }, 404)
   }
 
   const id = crypto.randomUUID()
@@ -120,9 +121,8 @@ app.post('/api/posts', async (c) => {
   return c.json(post, 201)
 })
 
-app.delete('/api/posts/:id', async (c) => {
-  const user = await requireUser(c)
-  if (!user) return c.json({ error: 'pick a username first' }, 401)
+app.delete('/api/posts/:id', requireUser, async (c) => {
+  const user = c.get('authedUser')
   const result = await c.env.DB.prepare('DELETE FROM posts WHERE id = ?1 AND author = ?2')
     .bind(c.req.param('id'), user)
     .run()
@@ -130,12 +130,10 @@ app.delete('/api/posts/:id', async (c) => {
   return c.body(null, 204)
 })
 
-app.post('/api/posts/:id/like', async (c) => {
-  const user = await requireUser(c)
-  if (!user) return c.json({ error: 'pick a username first' }, 401)
+app.post('/api/posts/:id/like', requireUser, async (c) => {
+  const user = c.get('authedUser')
   const id = c.req.param('id')
-  const post = await c.env.DB.prepare('SELECT id FROM posts WHERE id = ?1').bind(id).first()
-  if (!post) return c.json({ error: 'post not found' }, 404)
+  if (!(await postExists(c.env.DB, id))) return c.json({ error: 'post not found' }, 404)
 
   const existing = await c.env.DB.prepare(
     'SELECT 1 FROM likes WHERE post_id = ?1 AND username = ?2',
