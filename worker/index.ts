@@ -1,5 +1,5 @@
 import { Hono } from 'hono'
-import type { Post, CreatePostBody } from '../shared/types'
+import type { Post } from '../shared/types'
 import { MAX_POST_LENGTH, USERNAME_PATTERN } from '../shared/types'
 
 interface Env {
@@ -19,6 +19,16 @@ interface PostRow {
 }
 
 const USER_HEADER = 'x-chirp-user'
+const MAX_ID_LENGTH = 64
+
+const SECURITY_HEADERS: Record<string, string> = {
+  'content-security-policy':
+    "default-src 'self'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'; " +
+    "img-src 'self' data:; object-src 'none'",
+  'referrer-policy': 'no-referrer',
+  'x-content-type-options': 'nosniff',
+  'x-frame-options': 'DENY',
+}
 
 const toPost = (row: PostRow): Post => ({
   id: row.id,
@@ -41,10 +51,16 @@ const POST_SELECT = `
 
 const app = new Hono<{ Bindings: Env; Variables: { user: string | null } }>()
 
+app.use('*', async (c, next) => {
+  await next()
+  for (const [name, value] of Object.entries(SECURITY_HEADERS)) c.res.headers.set(name, value)
+})
+
 app.use('/api/*', async (c, next) => {
   const raw = c.req.header(USER_HEADER)?.trim().toLowerCase() ?? ''
   c.set('user', USERNAME_PATTERN.test(raw) ? raw : null)
   await next()
+  c.res.headers.set('cache-control', 'no-store')
 })
 
 const requireUser = async (
@@ -62,7 +78,10 @@ const requireUser = async (
 
 app.get('/api/posts', async (c) => {
   const user = c.get('user') ?? ''
-  const author = c.req.query('author')
+  const author = c.req.query('author')?.trim().toLowerCase()
+  if (author !== undefined && !USERNAME_PATTERN.test(author)) {
+    return c.json({ error: 'invalid author' }, 400)
+  }
   const where = author ? 'WHERE p.parent_id IS NULL AND p.author = ?2' : 'WHERE p.parent_id IS NULL'
   const stmt = c.env.DB.prepare(`${POST_SELECT} ${where} ORDER BY p.created_at DESC LIMIT 50`)
   const { results } = await (author ? stmt.bind(user, author) : stmt.bind(user)).all<PostRow>()
@@ -88,13 +107,24 @@ app.post('/api/posts', async (c) => {
   const user = await requireUser(c)
   if (!user) return c.json({ error: 'pick a username first' }, 401)
 
-  const { body, parentId = null } = await c.req.json<CreatePostBody>()
-  const text = body?.trim() ?? ''
+  const payload: unknown = await c.req.json().catch(() => null)
+  if (typeof payload !== 'object' || payload === null) {
+    return c.json({ error: 'invalid request body' }, 400)
+  }
+  const { body, parentId: rawParentId } = payload as Record<string, unknown>
+  if (typeof body !== 'string') return c.json({ error: 'post body must be a string' }, 400)
+  if (rawParentId != null && typeof rawParentId !== 'string') {
+    return c.json({ error: 'parentId must be a string' }, 400)
+  }
+  const parentId = rawParentId == null || rawParentId === '' ? null : rawParentId
+
+  const text = body.trim()
   if (!text) return c.json({ error: 'post cannot be empty' }, 400)
   if (text.length > MAX_POST_LENGTH) {
     return c.json({ error: `post must be ${MAX_POST_LENGTH} characters or fewer` }, 400)
   }
   if (parentId) {
+    if (parentId.length > MAX_ID_LENGTH) return c.json({ error: 'parent post not found' }, 404)
     const parent = await c.env.DB.prepare('SELECT id FROM posts WHERE id = ?1').bind(parentId).first()
     if (!parent) return c.json({ error: 'parent post not found' }, 404)
   }
@@ -163,10 +193,10 @@ app.post('/api/posts/:id/like', async (c) => {
   return c.json({ likeCount: count?.n ?? 0, likedByMe: !existing })
 })
 
-app.notFound((c) =>
-  c.req.path.startsWith('/api/')
-    ? c.json({ error: 'not found' }, 404)
-    : c.env.ASSETS.fetch(c.req.raw),
-)
+app.notFound(async (c) => {
+  if (c.req.path.startsWith('/api/')) return c.json({ error: 'not found' }, 404)
+  const asset = await c.env.ASSETS.fetch(c.req.raw)
+  return new Response(asset.body, asset)
+})
 
 export default app
