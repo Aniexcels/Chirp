@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import type { Post } from '../shared/types'
 import * as api from './api'
+import chirpMark from './assets/chirp-mark.png'
 import Composer from './components/Composer'
 import Login from './components/Login'
 import PostCard from './components/PostCard'
@@ -99,7 +100,8 @@ export default function App() {
     <div className="app">
       <header className="header">
         <h1>
-          <button className="link-button" onClick={() => setView({ kind: 'feed' })}>
+          <button className="link-button brand" onClick={() => setView({ kind: 'feed' })}>
+            <img className="brand-mark" src={chirpMark} alt="" width={30} height={30} />
             Chirp
           </button>
         </h1>
